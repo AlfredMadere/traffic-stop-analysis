@@ -1,26 +1,21 @@
-import duckdb
+import polars as pl
 import os
-import glob
-import pandas as pd
-from typing import List
+import argparse
+from datetime import datetime
 
-# Make pandas output more readable
-pd.set_option('display.max_columns', None)
-pd.set_option('display.width', None)
-pd.set_option('display.max_colwidth', 30)
-
-def get_non_null_columns(df: pd.DataFrame) -> List[str]:
+def get_non_null_columns(df):
     """Return list of columns that have at least one non-null value"""
-    return [col for col in df.columns if df[col].notna().any()]
+    return [col for col in df.columns if df[col].null_count() != len(df)]
 
 def analyze_parquet_file(file_path: str):
+    """Analyze a single parquet file and print its statistics."""
     filename = os.path.basename(file_path)
     print(f"\n{'='*50}")
     print(f"Analyzing: {filename}")
     print(f"{'='*50}")
     
     # Read the parquet file
-    df = duckdb.read_parquet(file_path).df()
+    df = pl.read_parquet(file_path)
     
     # Show all columns
     print("\nAll columns in schema:")
@@ -35,7 +30,7 @@ def analyze_parquet_file(file_path: str):
     print("-----------------")
     for col in non_null_cols:
         # Count non-null values
-        non_null_count = df[col].notna().sum()
+        non_null_count = len(df) - df[col].null_count()
         percent_filled = (non_null_count / len(df)) * 100
         print(f"- {col:<30} ({non_null_count:,} rows, {percent_filled:.1f}% filled)")
     
@@ -43,21 +38,27 @@ def analyze_parquet_file(file_path: str):
     print("-----------------------------------------------------")
     # Show only columns that have data
     sample_df = df[non_null_cols].head()
-    print(sample_df.to_string(index=False))
+    print(sample_df)
 
 def main():
-    # Connect to an in-memory DuckDB database
-    con = duckdb.connect()
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Analyze a parquet file and display statistics.')
+    parser.add_argument('file', help='Path to the parquet file to analyze')
+    args = parser.parse_args()
     
-    # Get path to preprocessed-data directory
-    preprocessed_dir = os.path.join(os.path.dirname(__file__), "preprocessed-data")
-    parquet_files = glob.glob(os.path.join(preprocessed_dir, "*.parquet"))
+    # Verify file exists and is a parquet file
+    if not os.path.exists(args.file):
+        print(f"Error: File '{args.file}' does not exist")
+        return
     
-    print(f"Found {len(parquet_files)} parquet files")
+    if not args.file.endswith('.parquet'):
+        print(f"Error: File '{args.file}' is not a parquet file")
+        return
     
-    # Analyze each parquet file
-    for parquet_file in parquet_files:
-        analyze_parquet_file(parquet_file)
+    try:
+        analyze_parquet_file(args.file)
+    except Exception as e:
+        print(f"Error analyzing file: {str(e)}")
 
 if __name__ == "__main__":
     main()

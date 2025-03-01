@@ -12,22 +12,83 @@ _ = dotenv.load_dotenv()
 
 # Schema definitions for consistent type handling
 SCHEMA_OVERRIDES = {
-    # String columns
+    # String/Text columns
     "raw_row_number": pl.Utf8,
+    "location": pl.Utf8,
+    "geocode_source": pl.Utf8,
+    "county_name": pl.Utf8,
+    "neighborhood": pl.Utf8,
+    "beat": pl.Utf8,  # Could be numeric but often contains letters
     "district": pl.Utf8,
+    "subdistrict": pl.Utf8,
+    "division": pl.Utf8,
+    "subdivision": pl.Utf8,
+    "police_grid_number": pl.Utf8,
     "precinct": pl.Utf8,
+    "region": pl.Utf8,
+    "reporing_area": pl.Utf8,
+    "sector": pl.Utf8,
+    "subsector": pl.Utf8,
+    "substation": pl.Utf8,
+    "service_area": pl.Utf8,
+    "zone": pl.Utf8,
+    "subject_race": pl.Utf8,
+    "subject_sex": pl.Utf8,
+    "officer_id_hash": pl.Utf8,
+    "officer_race": pl.Utf8,
+    "officer_sex": pl.Utf8,
+    "officer_assignment": pl.Utf8,
+    "department_name": pl.Utf8,
+    "unit": pl.Utf8,
+    "type": pl.Utf8,
+    "disposition": pl.Utf8,
+    "violation": pl.Utf8,
+    "outcome": pl.Utf8,
+    "search_basis": pl.Utf8,
+    "reason_for_arrest": pl.Utf8,
+    "reason_for_frisk": pl.Utf8,
+    "reason_for_search": pl.Utf8,
+    "reason_for_stop": pl.Utf8,
+    "use_of_force_description": pl.Utf8,
+    "use_of_force_reason": pl.Utf8,
+    "vehicle_color": pl.Utf8,
+    "vehicle_make": pl.Utf8,
+    "vehicle_model": pl.Utf8,
+    "vehicle_type": pl.Utf8,
+    "vehicle_registration_state": pl.Utf8,
+    "notes": pl.Utf8,
+    
+    # Date columns
+    "date": pl.Date,
+    
+    # Time columns
+    "time": pl.Time,
+    
+    # Float columns
+    "lat": pl.Float64,
+    "lng": pl.Float64,
+    "subject_age": pl.Float64,
+    "officer_age": pl.Float64,
+    "speed": pl.Float64,
+    "posted_speed": pl.Float64,
+    
+    # Integer columns
+    "officer_years_of_service": pl.Int64,
+    "department_id": pl.Int64,
+    "vehicle_year": pl.Int64,
     
     # Boolean columns
-    "search_person": pl.Boolean,
-    "search_vehicle": pl.Boolean,
-    "contraband_found": pl.Boolean,
-    "contraband_drugs": pl.Boolean,
-    "contraband_weapons": pl.Boolean,
-    "frisk_performed": pl.Boolean,
-    "search_conducted": pl.Boolean,
     "arrest_made": pl.Boolean,
     "citation_issued": pl.Boolean,
     "warning_issued": pl.Boolean,
+    "contraband_found": pl.Boolean,
+    "contraband_drugs": pl.Boolean,
+    "contraband_weapons": pl.Boolean,
+    "contraband_other": pl.Boolean,
+    "frisk_performed": pl.Boolean,
+    "search_conducted": pl.Boolean,
+    "search_person": pl.Boolean,
+    "search_vehicle": pl.Boolean
 }
 
 # Predefined set of columns that might appear in any CSV file
@@ -132,9 +193,15 @@ def process_batch(batch: pl.DataFrame, file_id: str):
     # For each predefined column, either use the existing column or create a null column
     for col_name in PREDEFINED_COLUMNS:
         if col_name in batch.columns:
-            expressions.append(pl.col(col_name))
+            # Cast the column to its defined type if it exists in SCHEMA_OVERRIDES
+            if col_name in SCHEMA_OVERRIDES:
+                expressions.append(pl.col(col_name).cast(SCHEMA_OVERRIDES[col_name]))
+            else:
+                expressions.append(pl.col(col_name))
         else:
-            expressions.append(pl.lit(None).alias(col_name))
+            # Create null column with correct type if defined
+            null_type = SCHEMA_OVERRIDES.get(col_name, None)
+            expressions.append(pl.lit(None, null_type).alias(col_name))
     
     # Return the DataFrame with all predefined columns
     return batch.select(expressions)
@@ -157,14 +224,6 @@ def process_file(input_csv: str):
     print(f"\nProcessing: {file_id}")
     print(f"Input: {input_csv}")
     print(f"Output: {output_path}")
-    
-    # Get total rows for progress tracking
-    total_rows = len(pl.read_csv(
-        input_csv, 
-        schema_overrides=SCHEMA_OVERRIDES,
-        null_values=["NA", ""]  # Treat NA and empty strings as null
-    ))
-    print(f"Total rows to process: {total_rows:,}")
     
     # Create a temporary directory for batch files
     temp_dir = tempfile.mkdtemp()
@@ -202,19 +261,10 @@ def process_file(input_csv: str):
             elapsed_time = current_time - start_time
             rows_per_second = total_rows_processed / elapsed_time if elapsed_time > 0 else 0
             
-            # Calculate remaining time
-            remaining_rows = total_rows - total_rows_processed
-            estimated_seconds_remaining = remaining_rows / rows_per_second if rows_per_second > 0 else 0
-            estimated_completion_time = datetime.now() + timedelta(seconds=estimated_seconds_remaining)
-            
-            percent_complete = (total_rows_processed / total_rows) * 100
-            
             print(f"[{datetime.now().strftime('%H:%M:%S')}] " + 
-                  f"Processed {total_rows_processed:,} rows ({percent_complete:.1f}%) " + 
+                  f"Processed {total_rows_processed:,} rows " + 
                   f"({rows_per_second:.2f} rows/sec). " + 
-                  f"Elapsed: {timedelta(seconds=int(elapsed_time))}. " + 
-                  f"Remaining: {timedelta(seconds=int(estimated_seconds_remaining))}. " + 
-                  f"ETA: {estimated_completion_time.strftime('%H:%M:%S')}")
+                  f"Elapsed: {timedelta(seconds=int(elapsed_time))}")
             
             batches = reader.next_batches(100)
         
