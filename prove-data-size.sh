@@ -1,0 +1,2 @@
+du -sh ./raw-data
+
